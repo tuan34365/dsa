@@ -1,1 +1,602 @@
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <queue>
+#include <map>
+#include <string>
+#include <sstream>
+#include <climits>
+#include <iomanip>
+#include <algorithm>
+#include <cctype>
+
+using namespace std;
+
+// Cấu trúc biểu diễn một cạnh
+struct Edge {
+    string destination;
+    double distance;
+    int time;
+    int cost;
+    string vehicle;
+};
+
+// Cấu trúc biểu diễn một nút (địa điểm)
+struct Node {
+    string name;
+    vector<Edge> adjList; // Danh sách kề
+};
+
+// Cấu trúc lưu yêu cầu người dùng
+struct UserRequest {
+    string start;
+    string end;
+    string startTime;
+    int duration; // Khoảng thời gian mong muốn (phút)
+    int maxCost;  // Chi phí tối đa (VNĐ)
+    string middleLocation; // Địa điểm trung gian (nếu có)
+    string vehicle; // Phương tiện (nếu có)
+    string criterion; // Tiêu chí (distance, time, cost)
+};
+
+// Biến toàn cục
+map<string, Node> fullGraph; // Đồ thị tổng hợp
+map<string, map<string, Node>> vehicleGraphs; // Đồ thị phân loại theo phương tiện
+vector<string> vehicles = {"Xe buyt", "Tau hoa", "Oto", "May bay", "Xe may", "Xe dap"};
+
+// Hàm chuẩn hóa chuỗi: in hoa, không khoảng cách
+string normalizeString(const string& str) {
+    string result = str;
+    for (char& c : result) {
+        c = toupper(c);
+    }
+    result.erase(remove(result.begin(), result.end(), ' '), result.end());
+    return result;
+}
+
+// Hàm chuyển chuỗi thành in thường để so sánh
+string toLowerCase(const string& str) {
+    string result = str;
+    for (char& c : result) {
+        c = tolower(c);
+    }
+    return result;
+}
+
+// Hàm ánh xạ địa điểm về dạng chuẩn hóa
+string mapLocation(const string& location) {
+    return normalizeString(location);
+}
+
+// Hàm ánh xạ phương tiện về dạng gốc
+string mapVehicle(const string& vehicle) {
+    string normalized = normalizeString(vehicle);
+    for (const string& v : vehicles) {
+        if (normalizeString(v) == normalized) {
+            return v;
+        }
+    }
+    return vehicle;
+}
+
+// Hàm kiểm tra địa điểm đã tồn tại chưa
+bool isLocationExist(const string& location) {
+    string normalized = mapLocation(location);
+    return fullGraph.find(normalized) != fullGraph.end();
+}
+
+// Hàm thêm địa điểm mới vào đồ thị
+void addLocation(const string& location) {
+    string normalized = mapLocation(location);
+    if (fullGraph.find(normalized) == fullGraph.end()) {
+        Node newNode;
+        newNode.name = normalized;
+        fullGraph[normalized] = newNode;
+        for (const string& vehicle : vehicles) {
+            vehicleGraphs[vehicle][normalized] = newNode;
+        }
+    }
+}
+
+// Hàm thêm cạnh vào đồ thị
+void addEdge(const string& src, const string& dest, double distance, int time, int cost, const string& vehicle) {
+    string normalizedSrc = mapLocation(src);
+    string normalizedDest = mapLocation(dest);
+    string mappedVehicle = mapVehicle(vehicle);
+    Edge edge = {normalizedDest, distance, time, cost, mappedVehicle};
+    fullGraph[normalizedSrc].adjList.push_back(edge);
+    if (vehicleGraphs.find(mappedVehicle) != vehicleGraphs.end()) {
+        vehicleGraphs[mappedVehicle][normalizedSrc].adjList.push_back(edge);
+    }
+}
+
+// Hàm BFS tìm đường đi bất kỳ
+vector<string> bfs(const string& start, const string& end) {
+    string normalizedStart = mapLocation(start);
+    string normalizedEnd = mapLocation(end);
+
+    if (fullGraph.find(normalizedStart) == fullGraph.end() || fullGraph.find(normalizedEnd) == fullGraph.end()) {
+        return {};
+    }
+
+    map<string, string> parent;
+    queue<string> q;
+    map<string, bool> visited;
+
+    q.push(normalizedStart);
+    visited[normalizedStart] = true;
+
+    while (!q.empty()) {
+        string current = q.front();
+        q.pop();
+
+        if (current == normalizedEnd) {
+            vector<string> path;
+            string curr = normalizedEnd;
+            while (curr != normalizedStart) {
+                path.push_back(curr);
+                curr = parent[curr];
+            }
+            path.push_back(normalizedStart);
+            reverse(path.begin(), path.end());
+            return path;
+        }
+
+        for (const Edge& edge : fullGraph[current].adjList) {
+            if (!visited[edge.destination]) {
+                visited[edge.destination] = true;
+                parent[edge.destination] = current;
+                q.push(edge.destination);
+            }
+        }
+    }
+    return {};
+}
+
+// Hàm Dijkstra tìm đường đi ngắn nhất
+vector<string> dijkstra(const string& start, const string& end, const string& criterion, const string& vehicle = "all") {
+    string normalizedStart = mapLocation(start);
+    string normalizedEnd = mapLocation(end);
+    string mappedVehicle = mapVehicle(vehicle);
+
+    map<string, Node>& graph = (mappedVehicle == "all") ? fullGraph : vehicleGraphs[mappedVehicle];
+    if (graph.find(normalizedStart) == graph.end() || graph.find(normalizedEnd) == graph.end()) {
+        return {};
+    }
+
+    map<string, double> dist;
+    map<string, string> parent;
+    priority_queue<pair<double, string>, vector<pair<double, string>>, greater<>> pq;
+
+    for (const auto& node : graph) {
+        dist[node.first] = INT_MAX;
+    }
+    dist[normalizedStart] = 0;
+    pq.push({0, normalizedStart});
+
+    while (!pq.empty()) {
+        string current = pq.top().second;
+        double currentDist = pq.top().first;
+        pq.pop();
+
+        if (current == normalizedEnd) {
+            vector<string> path;
+            string curr = normalizedEnd;
+            while (curr != normalizedStart) {
+                path.push_back(curr);
+                curr = parent[curr];
+            }
+            path.push_back(normalizedStart);
+            reverse(path.begin(), path.end());
+            return path;
+        }
+
+        for (const Edge& edge : graph[current].adjList) {
+            double weight = (criterion == "distance") ? edge.distance :
+                           (criterion == "time") ? edge.time : edge.cost;
+            if (dist[current] + weight < dist[edge.destination]) {
+                dist[edge.destination] = dist[current] + weight;
+                parent[edge.destination] = current;
+                pq.push({dist[edge.destination], edge.destination});
+            }
+        }
+    }
+    return {};
+}
+
+// Hàm kiểm tra thời gian và chi phí của đường đi
+bool checkConstraints(const vector<string>& path, const UserRequest& req, double& totalDistance, int& totalTime, int& totalCost) {
+    totalDistance = 0;
+    totalTime = 0;
+    totalCost = 0;
+
+    if (path.empty()) return false;
+
+    for (size_t i = 0; i < path.size() - 1; ++i) {
+        for (const Edge& edge : fullGraph[path[i]].adjList) {
+            if (edge.destination == path[i + 1]) {
+                totalDistance += edge.distance;
+                totalTime += edge.time;
+                totalCost += edge.cost;
+                break;
+            }
+        }
+    }
+
+    return totalTime <= req.duration && totalCost <= req.maxCost;
+}
+
+// Hàm tìm đường đi qua địa điểm trung gian
+vector<string> findPathThrough(const string& start, const string& middle, const string& end, const string& criterion) {
+    string normalizedStart = mapLocation(start);
+    string normalizedMiddle = mapLocation(middle);
+    string normalizedEnd = mapLocation(end);
+
+    vector<string> path1 = dijkstra(normalizedStart, normalizedMiddle, criterion);
+    vector<string> path2 = dijkstra(normalizedMiddle, normalizedEnd, criterion);
+    if (path1.empty() || path2.empty()) return {};
+
+    path1.pop_back(); // Loại bỏ điểm trung gian để tránh trùng
+    path1.insert(path1.end(), path2.begin(), path2.end());
+    return path1;
+}
+
+// Hàm in đường đi dưới dạng bảng
+void printPath(const vector<string>& path, const UserRequest& req, const string& criterion) {
+    if (path.empty()) {
+        cout << "Khong tim thay duong di!" << endl;
+        return;
+    }
+
+    double totalDistance = 0;
+    int totalTime = 0;
+    int totalCost = 0;
+
+    cout << "\n+---------------------------------------------+\n";
+    cout << "| Thoi gian bat dau: " << req.startTime << " |\n";
+    cout << "| Duong di: ";
+    for (size_t i = 0; i < path.size(); ++i) {
+        cout << path[i];
+        if (i < path.size() - 1) cout << " -> ";
+    }
+    cout << " |\n";
+
+    for (size_t i = 0; i < path.size() - 1; ++i) {
+        for (const Edge& edge : fullGraph[path[i]].adjList) {
+            if (edge.destination == path[i + 1]) {
+                totalDistance += edge.distance;
+                totalTime += edge.time;
+                totalCost += edge.cost;
+                cout << "| " << setw(10) << path[i] << " -> " << setw(10) << path[i + 1]
+                     << " | " << setw(10) << edge.vehicle << " | Khoang cach: " << fixed << setprecision(1) << edge.distance
+                     << " km | Thoi gian: " << edge.time << " phut | Chi phi: " << edge.cost << " VND |\n";
+                break;
+            }
+        }
+    }
+    cout << "+---------------------------------------------+\n";
+    cout << "| Tong khoang cach: " << fixed << setprecision(1) << totalDistance << " km, Thoi gian: " << totalTime
+         << " phut, Chi phi: " << totalCost << " VND |\n";
+    cout << "+---------------------------------------------+\n";
+}
+
+// Hàm lưu đường đi vào file
+void savePathToFile(const vector<string>& path, const string& filename, const UserRequest& req, const string& criterion) {
+    ofstream outFile(filename, ios::app);
+    if (outFile.is_open()) {
+        outFile << "Thoi gian bat dau: " << req.startTime << "\n";
+        outFile << "Duong di: ";
+        for (size_t i = 0; i < path.size(); ++i) {
+            outFile << path[i];
+            if (i < path.size() - 1) outFile << " -> ";
+        }
+        outFile << "\n";
+
+        double totalDistance = 0;
+        int totalTime = 0;
+        int totalCost = 0;
+        for (size_t i = 0; i < path.size() - 1; ++i) {
+            for (const Edge& edge : fullGraph[path[i]].adjList) {
+                if (edge.destination == path[i + 1]) {
+                    totalDistance += edge.distance;
+                    totalTime += edge.time;
+                    totalCost += edge.cost;
+                    break;
+                }
+            }
+        }
+        outFile << "Tong khoang cach: " << fixed << setprecision(1) << totalDistance << " km, Thoi gian: " << totalTime
+                << " phut, Chi phi: " << totalCost << " VND\n\n";
+        outFile.close();
+    } else {
+        cout << "Khong mo duoc file " << filename << " de ghi!" << endl;
+    }
+}
+
+// Hàm đọc dữ liệu từ file
+void readFromFile(const string& filename) {
+    ifstream inFile(filename);
+    if (!inFile.is_open()) {
+        cout << "Khong mo duoc file " << filename << "!" << endl;
+        return;
+    }
+
+    string line;
+    while (getline(inFile, line)) {
+        if (line[0] == '#') continue;
+        stringstream ss(line);
+        string src, dest, vehicle;
+        double distance;
+        int time, cost;
+        char comma;
+
+        if (getline(ss, src, ',') && getline(ss, dest, ',') &&
+            (ss >> distance >> comma >> time >> comma >> cost >> comma) && getline(ss, vehicle)) {
+            bool validVehicle = false;
+            string mappedVehicle = mapVehicle(vehicle);
+            for (const string& v : vehicles) {
+                if (v == mappedVehicle) {
+                    validVehicle = true;
+                    break;
+                }
+            }
+            if (!validVehicle) {
+                cout << "Phuong tien khong hop le trong dong: " << line << endl;
+                continue;
+            }
+            addLocation(src);
+            addLocation(dest);
+            addEdge(src, dest, distance, time, cost, vehicle);
+        } else {
+            cout << "Loi dinh dang dong: " << line << endl;
+        }
+    }
+    inFile.close();
+}
+
+// Hàm nhập tuyến đường từ bàn phím
+void inputRoute() {
+    string src, dest, vehicle;
+    double distance;
+    int time, cost;
+
+    cout << "Nhap diem di: ";
+    cin.ignore();
+    getline(cin, src);
+    cout << "Nhap diem den: ";
+    getline(cin, dest);
+    cout << "Nhap khoang cach (km): ";
+    cin >> distance;
+    cout << "Nhap thoi gian (phut): ";
+    cin >> time;
+    cout << "Nhap chi phi (VND): ";
+    cin >> cost;
+    cout << "Nhap phuong tien: ";
+    cin.ignore();
+    getline(cin, vehicle);
+
+    // Kiểm tra phương tiện hợp lệ
+    bool validVehicle = false;
+    string mappedVehicle = mapVehicle(vehicle);
+    for (const string& v : vehicles) {
+        if (v == mappedVehicle) {
+            validVehicle = true;
+            break;
+        }
+    }
+    if (!validVehicle) {
+        cout << "Phuong tien khong hop le!" << endl;
+        return;
+    }
+
+    // Kiểm tra dữ liệu đầu vào
+    if (distance < 0 || time < 0 || cost < 0) {
+        cout << "Du lieu khong hop le (khoang cach, thoi gian, chi phi phai >= 0)!" << endl;
+        return;
+    }
+
+    addLocation(src);
+    addLocation(dest);
+    addEdge(src, dest, distance, time, cost, vehicle);
+
+    cout << "Luu vao file? (y/n): ";
+    char save;
+    cin >> save;
+    if (save == 'y' || save == 'Y') {
+        ofstream outFile("routes.txt", ios::app);
+        if (outFile.is_open()) {
+            string normalizedSrc = mapLocation(src);
+            string normalizedDest = mapLocation(dest);
+            string normalizedVehicle = normalizeString(vehicle);
+            outFile << normalizedSrc << "," << normalizedDest << "," << fixed << setprecision(1) << distance << "," << time << "," << cost << "," << normalizedVehicle << "\n";
+            outFile.close();
+            cout << "Luu thanh cong!" << endl;
+        } else {
+            cout << "Khong mo duoc file routes.txt de ghi!" << endl;
+        }
+    }
+}
+
+// Hàm nhập yêu cầu người dùng
+UserRequest getUserRequest() {
+    UserRequest req;
+    cout << "Nhap diem bat dau: ";
+    cin.ignore();
+    getline(cin, req.start);
+    cout << "Nhap diem ket thuc: ";
+    getline(cin, req.end);
+    cout << "Nhap thoi gian bat dau (dinh dang HH:MM): ";
+    cin >> req.startTime;
+    cout << "Nhap khoang thoi gian mong muon (phut): ";
+    cin >> req.duration;
+    cout << "Nhap chi phi toi da (VND): ";
+    cin >> req.maxCost;
+    cout << "Co muon di qua dia diem trung gian khong? (y/n): ";
+    char hasMiddle;
+    cin >> hasMiddle;
+    if (hasMiddle == 'y' || hasMiddle == 'Y') {
+        cout << "Nhap dia diem trung gian: ";
+        cin.ignore();
+        getline(cin, req.middleLocation);
+    } else {
+        req.middleLocation = "";
+    }
+    cout << "Nhap phuong tien (bo trong neu khong chon): ";
+    cin.ignore();
+    getline(cin, req.vehicle);
+    cout << "Chon tieu chi (distance/time/cost): ";
+    cin >> req.criterion;
+    return req;
+}
+
+// Hàm menu chính
+void menu() {
+    // Khởi tạo đồ thị cho các phương tiện
+    for (const string& vehicle : vehicles) {
+        vehicleGraphs[vehicle] = map<string, Node>();
+    }
+
+    while (true) {
+        cout << "\n=== Menu Lap Ke Hoach Du Lich ===\n";
+        cout << "1. Nhap tuyen duong tu ban phim\n";
+        cout << "2. Doc tuyen duong tu file\n";
+        cout << "3. Tim duong di bat ky giua 2 dia diem\n";
+        cout << "4. Tim duong di ngan nhat (theo khoang cach/thoi gian/chi phi)\n";
+        cout << "5. Tim duong di qua dia diem trung gian\n";
+        cout << "6. Tim duong di bang mot phuong tien\n";
+        cout << "7. Thoat\n";
+        cout << "Chon: ";
+
+        int choice;
+        if (!(cin >> choice)) {
+            cout << "Lua chon khong hop le! Vui long nhap so tu 1 den 7." << endl;
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            continue;
+        }
+
+        if (choice == 7) break;
+
+        UserRequest req;
+        vector<string> path;
+        double totalDistance;
+        int totalTime, totalCost;
+
+        switch (choice) {
+            case 1: {
+                inputRoute();
+                break;
+            }
+            case 2: {
+                readFromFile("routes.txt");
+                break;
+            }
+            case 3: {
+                req = getUserRequest();
+                if (!isLocationExist(req.start) || !isLocationExist(req.end)) {
+                    cout << "Dia diem khong ton tai!" << endl;
+                    break;
+                }
+                path = bfs(req.start, req.end);
+                printPath(path, req, "any");
+                if (!path.empty() && checkConstraints(path, req, totalDistance, totalTime, totalCost)) {
+                    savePathToFile(path, "path_output.txt", req, "any");
+                } else if (!path.empty()) {
+                    cout << "Duong di khong thoa man thoi gian hoac chi phi!" << endl;
+                }
+                break;
+            }
+            case 4: {
+                req = getUserRequest();
+                if (req.criterion != "distance" && req.criterion != "time" && req.criterion != "cost") {
+                    cout << "Tieu chi khong hop le! Phai la distance, time hoac cost." << endl;
+                    break;
+                }
+                if (!isLocationExist(req.start) || !isLocationExist(req.end)) {
+                    cout << "Dia diem khong ton tai!" << endl;
+                    break;
+                }
+                path = dijkstra(req.start, req.end, req.criterion);
+                printPath(path, req, req.criterion);
+                if (!path.empty() && checkConstraints(path, req, totalDistance, totalTime, totalCost)) {
+                    savePathToFile(path, "shortest_path_output.txt", req, req.criterion);
+                } else if (!path.empty()) {
+                    cout << "Duong di khong thoa man thoi gian hoac chi phi!" << endl;
+                }
+                break;
+            }
+            case 5: {
+                req = getUserRequest();
+                if (req.criterion != "distance" && req.criterion != "time" && req.criterion != "cost") {
+                    cout << "Tieu chi khong hop le! Phai la distance, time hoac cost." << endl;
+                    break;
+                }
+                if (req.middleLocation.empty()) {
+                    cout << "Vui long nhap dia diem trung gian!" << endl;
+                    break;
+                }
+                if (!isLocationExist(req.start) || !isLocationExist(req.middleLocation) || !isLocationExist(req.end)) {
+                    cout << "Dia diem khong ton tai!" << endl;
+                    break;
+                }
+                path = findPathThrough(req.start, req.middleLocation, req.end, req.criterion);
+                printPath(path, req, req.criterion);
+                if (!path.empty() && checkConstraints(path, req, totalDistance, totalTime, totalCost)) {
+                    savePathToFile(path, "path_through_output.txt", req, req.criterion);
+                } else if (!path.empty()) {
+                    cout << "Duong di khong thoa man thoi gian hoac chi phi!" << endl;
+                }
+                break;
+            }
+            case 6: {
+                req = getUserRequest();
+                if (req.vehicle.empty()) {
+                    cout << "Vui long nhap phuong tien!" << endl;
+                    break;
+                }
+                bool validVehicle = false;
+                string mappedVehicle = mapVehicle(req.vehicle);
+                for (const string& v : vehicles) {
+                    if (v == mappedVehicle) {
+                        validVehicle = true;
+                        break;
+                    }
+                }
+                if (!validVehicle) {
+                    cout << "Phuong tien khong hop le!" << endl;
+                    break;
+                }
+                if (req.criterion != "distance" && req.criterion != "time" && req.criterion != "cost") {
+                    cout << "Tieu chi khong hop le! Phai la distance, time hoac cost." << endl;
+                    break;
+                }
+                if (!isLocationExist(req.start) || !isLocationExist(req.end)) {
+                    cout << "Dia diem khong ton tai!" << endl;
+                    break;
+                }
+                path = dijkstra(req.start, req.end, req.criterion, mappedVehicle);
+                printPath(path, req, req.criterion);
+                if (!path.empty() && checkConstraints(path, req, totalDistance, totalTime, totalCost)) {
+                    savePathToFile(path, "vehicle_path_output.txt", req, req.criterion);
+                } else if (!path.empty()) {
+                    cout << "Duong di khong thoa man thoi gian hoac chi phi!" << endl;
+                }
+                break;
+            }
+            default: {
+                cout << "Lua chon khong hop le! Vui long nhap so tu 1 den 7." << endl;
+                cin.clear();
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                break;
+            }
+        }
+    }
+}
+
+int main() {
+    cout << fixed << setprecision(1);
+    menu();
+    return 0;
+}
+
 
