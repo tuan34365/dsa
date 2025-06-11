@@ -1,0 +1,22 @@
+# depslib dependency file v1.0
+1749627039 source:d:\documents\codeblocks\dsa\test_dsa\main.cpp
+	"Menu.h"
+	"bits/stdc++.h"
+
+1749627588 d:\documents\codeblocks\dsa\test_dsa\menu.h
+	"Graph.h"
+	"PathFinder.h"
+	"FileHandler.h"
+	"bits/stdc++.h"
+
+1749627555 d:\documents\codeblocks\dsa\test_dsa\graph.h
+	"bits/stdc++.h"
+
+1749627452 d:\documents\codeblocks\dsa\test_dsa\pathfinder.h
+	"Graph.h"
+	"bits/stdc++.h"
+
+1749627448 d:\documents\codeblocks\dsa\test_dsa\filehandler.h
+	"Graph.h"
+	"bits/stdc++.h"
+
