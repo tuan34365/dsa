@@ -5,7 +5,7 @@ int main()
 {
     cout << fixed << setprecision(1);
     initVehicleGraphs();
-    loadDataFromFile("data.txt");
+    loadDataFromFile("routes.txt");
     menu();
     return 0;
 }
